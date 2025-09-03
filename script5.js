@@ -30,20 +30,16 @@ const MAX_POLYPHONY = 32;
 const voicePool = [];
 let lastVoice = 0;
 
-let forcePbOnly = false; // NEW: Force pitch-bend toggle
-let lastMtsSendMs = 0;   // NEW: For throttling smoothing loop
-
 // --- Sustain pedal state ---
-let sustainPedal = false;
-const keysDown = new Set();
-const sustainedNotes = new Set();
+let sustainPedal = false;          // true when CC64 >= 64
+const keysDown = new Set();        // MIDI notes currently held by key
+const sustainedNotes = new Set();  // notes released while pedal is down (WebAudio only)
 
 let sysExSupported = true;
 const notesUsingBend = new Set();
-let lastDeviceId = 0x7F; // NEW: For storing the probed device ID
 
 // --- MPE Channel Management ---
-const MPE_CHANNELS = Array.from({ length: 15 }, (_, i) => ({ channel: i + 2, inUse: false, note: null }));
+const MPE_CHANNELS = Array.from({ length: 15 }, (_, i) => ({ channel: i + 1, inUse: false, note: null }));
 const activeNotesToMpeChannel = {};
 
 // --- Just Intonation Ratios ---
@@ -59,10 +55,12 @@ const statusDiv = document.getElementById('status'), midiInSelect = document.get
     activateTuningButton = document.getElementById('activateTuningButton'), tuningStatusSpan = document.getElementById('tuningStatus'),
     panicButton = document.getElementById('panicButton'), jiScaleTypeSelect = document.getElementById('jiScaleType'),
     jiReferenceSourceRadios = document.querySelectorAll('input[name="jiReferenceSource"]'), manualJiControls = document.getElementById('manualJiControls'),
-    autoDetectControls = document.getElementById('autoDetectControls'), detectedKeyDisplay = document.getElementById('detectedKeyDisplay'),
-    mtsStatusText = document.getElementById('mtsStatusText'), audibleTestBtn = document.getElementById('audibleTestBtn'),
-    forcePbCheckbox = document.getElementById('forcePbCheckbox'); // NEW
-
+    autoDetectControls = document.getElementById('autoDetectControls'), detectedKeyDisplay = document.getElementById('detectedKeyDisplay');
+// Add these with your other UI element constants
+const smartActivateButton = document.getElementById('smartActivateButton');
+const smartStatus = document.getElementById('smartStatus');
+const advancedControlsToggle = document.getElementById('advancedControlsToggle');
+const advancedControlsContainer = document.getElementById('advancedControlsContainer');
 
 // --- Helper Functions ---
 const logMessage = (msg, isErr = false) => {
@@ -79,6 +77,36 @@ const logMessage = (msg, isErr = false) => {
 const midiNoteToFrequency = note => 440 * Math.pow(2, (note - 69) / 12);
 const parseRatio = r => r ? r.split('/').map(Number).reduce((a, b) => a / b) : null;
 
+function setupVoicePool() {
+    for (let i = 0; i < MAX_POLYPHONY; i++) {
+        voicePool.push({
+            source: null,
+            gain: audioContext.createGain(), // Pre-create the gain node
+            note: null,
+            inUse: false,
+            startTime: 0
+        });
+        voicePool[i].gain.connect(audioContext.destination);
+    }
+}
+
+function getVoice(note) {
+    // First, try to find an unused voice
+    let voice = voicePool.find(v => !v.inUse);
+    if (voice) return voice;
+
+    // If none are free, steal the oldest one
+    voice = voicePool.reduce((oldest, current) => {
+        return (current.startTime < oldest.startTime) ? current : oldest;
+    });
+    
+    // Stop the note that's being stolen
+    if (voice.source) voice.source.stop();
+    logMessage(`Voice stealing: Re-using voice for note ${voice.note}`);
+    return voice;
+}
+
+// --- Replace the old setupPianoSample function ---
 const setupMultiSamples = async (ctx) => {
     logMessage("Loading piano multi-samples...");
     statusDiv.textContent = "Loading piano sounds...";
@@ -107,25 +135,33 @@ const setupMultiSamples = async (ctx) => {
     updateUIState();
 };
 
+// Also update initializeAudioContext to call the new function
 const initializeAudioContext = () => {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         logMessage("Audio context initialized.");
-        setupMultiSamples(audioContext);
+        setupMultiSamples(audioContext); // <-- Use the new function here
     } catch (e) { logMessage("Web Audio not supported.", true); }
 };
 
+// --- Replace the old playWebAudioNote function ---
 const playWebAudioNote = (note, vel, freq) => {
     if (!audioContext || Object.keys(multiSamples).length === 0 || webAudioNotes[note]) return;
 
+    // 1. Find the closest sample we have to the note being played
     const sampleNotes = Object.keys(multiSamples).map(Number);
     const closestSampleNote = sampleNotes.reduce((prev, curr) => {
         return (Math.abs(curr - note) < Math.abs(prev - note) ? curr : prev);
     });
-    
+
+    // 2. Get the audio buffer for that sample
     const sampleBuffer = multiSamples[closestSampleNote];
+    
+    // 3. Create the audio nodes (this is your original, responsive code)
     const source = audioContext.createBufferSource();
     source.buffer = sampleBuffer;
+    
+    // 4. Calculate playback rate relative to the chosen sample, not a fixed C4
     const baseFreq = midiNoteToFrequency(closestSampleNote);
     source.playbackRate.value = freq / baseFreq;
 
@@ -148,6 +184,7 @@ const stopWebAudioNote = note => {
 const resetAllMidiState = () => {
     logMessage("PANIC: Resetting all MIDI states and channels.");
     if (midiOutput) {
+        midiOutput.send([0xB0, 122, 127]); // Local Control ON
         for (let ch = 0; ch < 16; ch++) {
             midiOutput.send([0xB0 | ch, 120, 0]);
             midiOutput.send([0xB0 | ch, 123, 0]);
@@ -162,6 +199,7 @@ const resetAllMidiState = () => {
     sustainPedal = false;
     keysDown.clear();
     sustainedNotes.clear();
+
 };      
 
 const getMpeChannel = note => {
@@ -195,92 +233,10 @@ const calculateTuning = (note) => {
     return { cents: centsDev, freq: finalFreq };
 };
 
-// --- CORRECTED AND NEW MIDI FUNCTIONS ---
-
-function createMtsSysex(note, cents) {
-    const devId = (typeof lastDeviceId === 'number') ? lastDeviceId & 0x7F : 0x7F; // MODIFIED: Use probed device ID
-    const baseHz = midiNoteToFrequency(note);
-    const targetHz = baseHz * Math.pow(2, cents / 1200);
-    const nFloat = 69 + 12 * Math.log2(targetHz / 440);
-    let xx = Math.floor(nFloat);
-    xx = Math.max(0, Math.min(127, xx)); // ✅ Add this safety clamp
-    let frac = Math.round((nFloat - xx) * 16384);
-    if (frac === 16384) { xx += 1; frac = 0; }
-    const yy = (frac >> 7) & 0x7F; const zz = frac & 0x7F;
-    return new Uint8Array([0xF0, 0x7F, devId, 0x08, 0x02, 0x00, 0x01, note & 0x7F, xx & 0x7F, yy, zz, 0xF7]);
-}
-
-function setPitchBendRangeAllChannels(semitones = 1, cents = 0) {
-  if (!midiOutput) return;
-  for (let ch = 1; ch < 16; ch++) {
-    midiOutput.send([0xB0 | ch, 0x65, 0x00]); midiOutput.send([0xB0 | ch, 0x64, 0x00]);
-    midiOutput.send([0xB0 | ch, 0x06, semitones & 0x7F]); midiOutput.send([0xB0 | ch, 0x26, cents & 0x7F]);
-    midiOutput.send([0xB0 | ch, 0x65, 0x7F]); midiOutput.send([0xB0 | ch, 0x64, 0x7F]);
-  }
-}
-
-// --- NEW PROBING FUNCTIONS ---
-function waitForSysex(matchFn, timeoutMs = 400) {
-  return new Promise(resolve => {
-    if (!midiInput) return resolve(null);
-    const onMsg = (e) => {
-      const d = new Uint8Array(e.data || []);
-      if (d && d[0] === 0xF0 && matchFn(d)) {
-        midiInput.removeEventListener('midimessage', onMsg);
-        resolve(d);
-      }
-    };
-    midiInput.addEventListener('midimessage', onMsg);
-    setTimeout(() => {
-      try { midiInput.removeEventListener('midimessage', onMsg); } catch {}
-      resolve(null);
-    }, timeoutMs);
-  });
-}
-
-async function probeIdentity() {
-  if (!midiOutput || !midiInput) return null;
-  midiOutput.send([0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7]);
-  const rsp = await waitForSysex(d => d.length >= 15 && d[1] === 0x7E && d[3] === 0x06 && d[4] === 0x02, 500);
-  if (!rsp) return null;
-  return { deviceId: rsp[2] & 0x7F };
-}
-
-async function probeMtsDump(deviceId = 0x7F, program = 0) {
-  if (!midiOutput || !midiInput) return false;
-  midiOutput.send([0xF0, 0x7E, deviceId, 0x08, 0x00, program & 0x7F, 0xF7]);
-  const reply = await waitForSysex(d => d[1] === 0x7E && d[3] === 0x08 && [1, 4, 5, 6].includes(d[4]), 600);
-  return !!reply;
-}
-
-async function audibleMtsRtTest(note = 69, cents = 50) {
-  if (!midiOutput) return false;
-  function mtsSingleRT(devId, k, c) {
-    const baseHz = 440 * Math.pow(2,(k-69)/12); const targetHz = baseHz * Math.pow(2, c/1200);
-    const nFloat = 69 + 12 * Math.log2(targetHz/440); let xx = Math.floor(nFloat);
-    let frac = Math.round((nFloat - xx) * 16384); if (frac === 16384) { xx += 1; frac = 0; }
-    const yy = (frac >> 7) & 0x7F, zz = frac & 0x7F;
-    return [0xF0,0x7F,devId,0x08,0x02,0x00,0x01,k & 0x7F, xx & 0x7F, yy, zz, 0xF7];
-  }
-  midiOutput.send(mtsSingleRT(lastDeviceId, note, cents));
-  midiOutput.send([0x90, note, 100]);
-  await new Promise(r=>setTimeout(r, 800));
-  midiOutput.send([0x80, note, 0]);
-  midiOutput.send(mtsSingleRT(lastDeviceId, note, 0));
-  return true;
-}
-
-async function afterOutputSelected() {
-  updateStatus('Probing device capabilities...', false);
-  const id = await probeIdentity();
-  if (id) lastDeviceId = id.deviceId;
-  const hasDump = await probeMtsDump(lastDeviceId, 0);
-  if (hasDump) {
-    updateStatus('MTS Confirmed (device responded to MTS query).', false);
-  } else {
-    updateStatus('MTS support is unknown. You can run an audible test.', true);
-  }
-}
+const createMtsSysex = (note, cents) => {
+    const val = Math.max(0, Math.min(16383, Math.round(cents * 81.92) + 8192));
+    return new Uint8Array([0xF0, 0x7F, 0x7F, 0x08, 0x02, note, 1, note, (val >> 7) & 0x7F, val & 0x7F, 0xF7]);
+};
 
 const onMIDIMessage = event => {
     const [status, note, vel] = event.data;
@@ -291,7 +247,9 @@ const onMIDIMessage = event => {
         if (tempoTracker.lastNoteTime > 0) {
             const diff = now - tempoTracker.lastNoteTime;
             tempoTracker.interNoteTimes.push(diff);
-            if (tempoTracker.interNoteTimes.length > tempoTracker.maxHistory) tempoTracker.interNoteTimes.shift();
+            if (tempoTracker.interNoteTimes.length > tempoTracker.maxHistory) {
+                tempoTracker.interNoteTimes.shift();
+            }
             const sum = tempoTracker.interNoteTimes.reduce((a, b) => a + b, 0);
             tempoTracker.avgTime = sum / tempoTracker.interNoteTimes.length;
             updateAdaptiveWindow();
@@ -299,46 +257,52 @@ const onMIDIMessage = event => {
         
         tempoTracker.lastNoteTime = now;
         activeOnNotes[note] = { time: now, velocity: vel };
-        keysDown.add(note);
+        
+        keysDown.add(note); // NEW
         
         const { cents, freq } = calculateTuning(note);
         logMessage(`Note: ${note}, Cents Deviation: ${cents.toFixed(2)}`);
 
         if (outputMode === 'webaudio') {
-            playWebAudioNote(note, vel, freq);
+            // If the same note is already sounding (e.g., sustained), stop it so retrigger works
+            if (webAudioNotes[note]) {
+                stopWebAudioNote(note);
+                sustainedNotes.delete(note);
+            }
+            playWebAudioNote(note, vel, freq); // existing
         } else if (midiOutput) {
             const assignedChannel = getMpeChannel(note);
             if (assignedChannel === null) return;
 
-            // MODIFIED: Restructured tuning logic with forcePbOnly check
+            let sentSysEx = false;
             if (isTuningActive && Math.abs(cents) > 0.1) {
-                let sentSysEx = false;
-                // 1. Try to send MTS if not forced to PB
-                if (!forcePbOnly && sysExSupported) {
+                if (sysExSupported) {
                     try {
                         midiOutput.send(createMtsSysex(note, cents));
                         sentSysEx = true;
-                    } catch (e) { console.warn("SysEx send failed:", e); }
+                    } catch (e) {
+                        console.warn("SysEx send failed unexpectedly:", e);
+                    }
                 }
                 
-                // 2. Fallback to Pitch Bend if MTS wasn't sent
                 if (!sentSysEx) {
                     const bendValue = Math.max(0, Math.min(16383, Math.round(cents * 81.92) + 8192));
                     const lsb = bendValue & 0x7F;
                     const msb = (bendValue >> 7) & 0x7F;
                     midiOutput.send([0xE0 | assignedChannel, lsb, msb]);
                     notesUsingBend.add(note); 
-                    if (isTuningActive) logMessage(`Pitch Bend: Note ${note} tuned on MPE Ch ${assignedChannel}`);
+                    logMessage(`Fallback: Note ${note} tuned with Pitch Bend on MPE Ch ${assignedChannel}`);
                 }
             }
             
             midiOutput.send([0x90 | assignedChannel, note, vel]);
+            if(sentSysEx) logMessage(`MTS: Note On ${note} tuned on MPE Ch ${assignedChannel}`);
         }
     } else if (cmd === 8 || (cmd === 9 && vel === 0)) { // Note Off
         if (activeOnNotes[note]) {
             const { time, velocity } = activeOnNotes[note];
 
-            // --- NEW SUSTAIN LOGIC ---
+            // --- SUSTAIN LOGIC ---
             let duration = now - time;
             if (sustainPedal) {
                 duration *= 1.8; // Inflate duration to reflect sustain
@@ -347,15 +311,23 @@ const onMIDIMessage = event => {
             if (jiReferenceSource === 'auto') {
                 keyFinder.addNote({ pitch: note, duration: duration, velocity });
             }
-            keyFinder.runAnalysis();
+            // This was a minor bug in script6, calling analysis on every note-off.
+            // It's better to call it less frequently, but for now, this matches the logic you liked.
+            // For a future optimization, you could throttle this call.
+            keyFinder.runAnalysis(); 
+            
             delete activeOnNotes[note];
         }
 
-        keysDown.delete(note);
+        keysDown.delete(note); // NEW
 
         if (outputMode === 'webaudio') {
-            if (sustainPedal) sustainedNotes.add(note);
-            else stopWebAudioNote(note);
+            if (sustainPedal) {
+                // Hold this note until pedal goes up
+                sustainedNotes.add(note); // NEW
+            } else {
+                stopWebAudioNote(note);   // existing
+            }
         } else if (midiOutput) {
             const assignedChannel = activeNotesToMpeChannel[note];
             if (assignedChannel !== undefined) {
@@ -367,37 +339,60 @@ const onMIDIMessage = event => {
                 releaseMpeChannel(note);
             }
         }
-    } else if (cmd === 11) { // Control Change
-        const controller = note, value = vel;
-        if (controller === 64) {
-            sustainPedal = value >= 64;
-            logMessage(`Sustain pedal ${sustainPedal ? 'DOWN' : 'UP'}`);
-            if (!sustainPedal && outputMode === 'webaudio') {
-                sustainedNotes.forEach(n => { if (!keysDown.has(n)) stopWebAudioNote(n); });
-                sustainedNotes.clear();
+    }   else if (cmd === 11) { // Control Change
+        const controller = note;    // 'note' byte carries controller number for CC
+        const value = vel;
+
+        if (controller === 64) { // Sustain pedal
+            const down = value >= 64;
+            if (down !== sustainPedal) {
+                sustainPedal = down;
+                logMessage(`Sustain pedal ${down ? 'DOWN' : 'UP'}`);
+
+                // On pedal up in WebAudio, release any notes that were only being held by the pedal
+                if (!down && outputMode === 'webaudio') {
+                    for (const n of Array.from(sustainedNotes)) {
+                        if (!keysDown.has(n)) {
+                            stopWebAudioNote(n);
+                            sustainedNotes.delete(n);
+                        }
+                    }
+                }
             }
+
+            // For external MIDI output: broadcast CC64 to all channels (covers MPE per-note channels)
             if (outputMode === 'midi' && midiOutput) {
-                for (let ch = 0; ch < 16; ch++) midiOutput.send([0xB0 | ch, 64, value]);
+                for (let ch = 0; ch < 16; ch++) {
+                    midiOutput.send([0xB0 | ch, 64, value]);
+                }
             }
-        } else if (outputMode === 'midi' && midiOutput) {
-            midiOutput.send(event.data);
+            return; // handled
         }
+
+        // Other CCs: pass through as before
+        if (outputMode === 'midi' && midiOutput) midiOutput.send(event.data);
+        return;
     }
 };
 
 function updateAdaptiveWindow() {
-    const minWindow = 6000, maxWindow = 15000, fastTempoThreshold = 100, slowTempoThreshold = 1000;
+    const minWindow = 3000;
+    const maxWindow = 15000;
+    const fastTempoThreshold = 100;
+    const slowTempoThreshold = 1000;
     let newWindow;
-    if (tempoTracker.avgTime <= fastTempoThreshold) newWindow = minWindow;
-    else if (tempoTracker.avgTime >= slowTempoThreshold) newWindow = maxWindow;
-    else {
+    if (tempoTracker.avgTime <= fastTempoThreshold) {
+        newWindow = minWindow;
+    } else if (tempoTracker.avgTime >= slowTempoThreshold) {
+        newWindow = maxWindow;
+    } else {
         const progress = (tempoTracker.avgTime - fastTempoThreshold) / (slowTempoThreshold - fastTempoThreshold);
         newWindow = minWindow + (maxWindow - minWindow) * progress;
     }
     tempoTracker.currentWindowMs = tempoTracker.currentWindowMs * 0.95 + newWindow * 0.05;
 };
 
-// --- Key Finding Algorithm (condensed for brevity) ---
+// --- Key Finding Algorithm (from script6) ---
 const keyFinder = {
     MIN_NOTES_FOR_ANALYSIS: 16, performanceWindow: [], detectedKey: { name: "N/A", rootNote: 60, scale: 'major' },
     PITCH_CLASSES: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], COF: ['C', 'F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb', 'B', 'E', 'A', 'D', 'G'],
@@ -407,6 +402,8 @@ const keyFinder = {
         this.performanceWindow.push({ pitch, duration, velocity, time: now });
         this.performanceWindow = this.performanceWindow.filter(n => now - n.time < tempoTracker.currentWindowMs);
     },
+    // Replace the entire runAnalysis method with this one.
+
     runAnalysis() {
         if (this.performanceWindow.length < this.MIN_NOTES_FOR_ANALYSIS) return;
 
@@ -421,14 +418,14 @@ const keyFinder = {
         const normCount = maxCount > 0 ? countProfile.map(c => c / maxCount) : countProfile;
         const hybridProfile = normDur.map((d, i) => alpha * d + (1 - alpha) * normCount[i]);
 
-        // --- Pruning logic is correct ---
+        // --- Pruning logic ---
         const totalMass = hybridProfile.reduce((a, b) => a + b, 0) || 1;
         const massThreshold = 0.03 * totalMass;
         const prunedProfile = hybridProfile.map(v => v < massThreshold ? 0 : v);
         const maxHybrid = Math.max(...prunedProfile); if (maxHybrid === 0) return;
         const normalizedProfile = prunedProfile.map(p => p / maxHybrid);
 
-        // --- All Circle of Fifths geometry calculations are correct ---
+        // --- All Circle of Fifths geometry calculations ---
         const cofPitchClasses = [0, 5, 10, 3, 8, 1, 6, 11, 4, 9, 2, 7];
         const cofProfile = cofPitchClasses.map(pc => normalizedProfile[pc]);
         let maxAxisStrength = -Infinity, mainDirectedAxisStartIdx = -1;
@@ -448,12 +445,11 @@ const keyFinder = {
         const relativeMinorRootIndex = (majorKeyRootIndex - 3 + 12) % 12; const relativeMinorName = this.PITCH_CLASSES[relativeMinorRootIndex];
         let newKey;
 
-        // --- BUG FIX: This is the single, correct block for mode decision ---
+        // --- The "Dead Zone" logic for mode decision ---
         const DEAD_ZONE = 0.18;
         if (Math.abs(phi_m) < DEAD_ZONE) {
-            // In the ambiguous zone, trust the previous decision to prevent flips.
             newKey = this.detectedKey && this.detectedKey.name !== "N/A" ? { ...this.detectedKey } : null;
-            if (newKey) { // Re-construct name in case rootNote is just a number
+            if (newKey) {
                 newKey.name = this.PITCH_CLASSES[newKey.rootNote % 12] + (newKey.scale === 'major' ? ' Major' : ' minor');
             }
         } else if (phi_m > 0) {
@@ -461,17 +457,16 @@ const keyFinder = {
         } else {
             newKey = { name: `${relativeMinorName} minor`, rootNote: relativeMinorRootIndex + 60, scale: 'minor' };
         }
-        // --- The old, buggy logic block has been removed ---
 
-        // --- Corrected final update logic ---
+        // --- Final update logic ---
         if (newKey && (!this.detectedKey || newKey.name !== this.detectedKey.name)) {
             this.detectedKey = { ...newKey, confidence: confidence };
             logMessage(`New Key Target: ${this.detectedKey.name} (Confidence: ${confidence.toFixed(0)}%)`);
             this.updateKeyDisplay(this.detectedKey.name, this.detectedKey.scale, confidence);
-            
-            // --- LOGIC IMPROVEMENT: Define activeRoot and activeScale here ---
+            updateUIState(); // <-- THE FIX: Refresh the main UI when the key changes.
+
             const activeRoot = this.detectedKey.rootNote;
-            const activeScale = JI_RATIOS[this.detectedKey.scale]; // Use the new key's scale
+            const activeScale = JI_RATIOS[this.detectedKey.scale];
             
             for (let i = 0; i < 12; i++) {
                 const offset = (i - (activeRoot % 12) + 12) % 12;
@@ -485,11 +480,13 @@ const keyFinder = {
                 }
             }
         } else if (newKey) {
-            // Key is the same, just update the confidence for the UI. No retuning.
+            // Key is the same, just update the confidence for the UI.
             this.detectedKey.confidence = confidence;
             this.updateKeyDisplay(this.detectedKey.name, this.detectedKey.scale, confidence);
+            updateUIState(); // <-- THE FIX: Also refresh when confidence changes.
         }
-    },
+    }, // <-- Make sure this comma is here, before the next method in the object.
+
     updateKeyDisplay(keyName, scale, confidence = 0) {
         if (keyName === "Ambiguous" || confidence < 20) {
             detectedKeyDisplay.innerHTML = `<span class="font-semibold text-lg text-yellow-700">Ambiguous Key</span>`;
@@ -514,6 +511,7 @@ const onMIDISuccess = access => {
     access.onstatechange = onMIDIStateChange;
     updateUIState();
 };
+
 const onMIDIFailure = msg => {
     logMessage(`MIDI access failed: ${msg}. SysEx may be unsupported.`, true);
     statusDiv.textContent = `MIDI access failed: ${msg}. Pitch-bend fallback will be used.`;
@@ -522,10 +520,17 @@ const onMIDIFailure = msg => {
     if (!audioContext) initializeAudioContext();
     updateUIState();
 };
+
 const onMIDIStateChange = event => {
     logMessage(`MIDI state changed: ${event.port.name}, State: ${event.port.state}`);
-    if (midiInput?.id === event.port.id && event.port.state === 'disconnected') midiInput = null;
-    if (midiOutput?.id === event.port.id && event.port.state === 'disconnected') midiOutput = null;
+    if (midiInput && midiInput.id === event.port.id && event.port.state === 'disconnected') {
+        midiInput = null;
+        midiInSelect.value = "";
+    }
+    if (midiOutput && midiOutput.id === event.port.id && event.port.state === 'disconnected') {
+        midiOutput = null;
+        midiOutSelect.value = "";
+    }
     populateDeviceSelectors();
     updateUIState();
 };
@@ -535,8 +540,16 @@ function populateDeviceSelectors() {
     const currentInId = midiInput?.id, currentOutId = midiOutput?.id;
     midiInSelect.innerHTML = '<option value="">Select Input...</option>';
     midiOutSelect.innerHTML = '<option value="">Select Output...</option>';
-    midiAccess.inputs.forEach(i => { const opt = new Option(i.name, i.id); if (i.id === currentInId) opt.selected = true; midiInSelect.appendChild(opt); });
-    midiAccess.outputs.forEach(o => { const opt = new Option(o.name, o.id); if (o.id === currentOutId) opt.selected = true; midiOutSelect.appendChild(opt); });
+    midiAccess.inputs.forEach(i => {
+        const opt = new Option(i.name, i.id);
+        if (i.id === currentInId) opt.selected = true;
+        midiInSelect.appendChild(opt);
+    });
+    midiAccess.outputs.forEach(o => {
+        const opt = new Option(o.name, o.id);
+        if (o.id === currentOutId) opt.selected = true;
+        midiOutSelect.appendChild(opt);
+    });
     populateReferenceNoteSelector();
 }
 
@@ -550,17 +563,55 @@ function populateReferenceNoteSelector() {
     }
 }
 
-// --- NEW/MODIFIED UI FUNCTIONS ---
-function updateStatus(message, showTestButton = false) {
-    mtsStatusText.textContent = message;
-    audibleTestBtn.style.display = showTestButton ? 'inline-block' : 'none';
-}
-
 function updateUIState() {
     const inputReady = !!midiInput;
     const outputReady = (outputMode === 'midi' && !!midiOutput) || (outputMode === 'webaudio' && Object.keys(multiSamples).length > 0);
-    
-    activateTuningButton.disabled = !(inputReady && outputReady);
+    const systemReady = inputReady && outputReady;
+
+    // --- Control the new Smart Button ---
+    smartActivateButton.disabled = !systemReady;
+
+    if (isTuningActive) {
+        smartActivateButton.textContent = 'Deactivate Smart Tuning';
+        smartActivateButton.classList.add('bg-red-600', 'hover:bg-red-700');
+        smartActivateButton.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+    } else {
+        smartActivateButton.textContent = 'Activate Smart Tuning';
+        smartActivateButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+        smartActivateButton.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+    }
+
+    // --- NEW: Rich Status Display Logic ---
+    if (!systemReady) {
+        smartStatus.innerHTML = `<span>Select MIDI devices to begin.</span>`;
+        smartStatus.className = "key-display-mini mt-2 p-2 text-center rounded-md bg-yellow-100 text-yellow-800";
+    } else if (!isTuningActive) {
+        smartStatus.innerHTML = `<span>Inactive</span>`;
+        smartStatus.className = "key-display-mini mt-2 p-2 text-center rounded-md bg-gray-100 text-gray-600";
+    } else {
+        // Tuning is active, so we show the key finder's state.
+        // This logic is borrowed from keyFinder.updateKeyDisplay
+        const { name, scale, confidence } = keyFinder.detectedKey;
+        if (name === "Ambiguous" || (confidence < 20 && name !== "N/A")) {
+            smartStatus.innerHTML = `<span class="font-semibold text-lg">Ambiguous Key</span>`;
+            smartStatus.className = 'key-display-mini mt-2 p-2 text-center rounded-md bg-yellow-100 text-yellow-700';
+        } else if (name === "N/A") {
+            smartStatus.innerHTML = `<span class="font-semibold text-lg">Play some notes...</span>`;
+            smartStatus.className = 'key-display-mini mt-2 p-2 text-center rounded-md bg-gray-100 text-gray-500';
+        } else {
+            const bgColor = scale === 'major' ? 'bg-blue-100' : 'bg-purple-100';
+            const textColor = scale === 'major' ? 'text-blue-800' : 'text-purple-800';
+            smartStatus.innerHTML = `
+                <span class="font-semibold text-xl ${textColor}">${name}</span>
+                <div class="text-xs ${textColor} opacity-80">Confidence: ${confidence.toFixed(0)}%</div>
+            `;
+            smartStatus.className = `key-display-mini mt-2 p-2 text-center rounded-md ${bgColor}`;
+        }
+    }
+
+
+    // --- Logic for the Advanced Controls (unchanged) ---
+    activateTuningButton.disabled = !systemReady;
     const isJiTuning = tuningSystem === 'ji';
     document.getElementById('jiOptionsContainer').style.display = isJiTuning ? 'block' : 'none';
     const isAutoDetect = jiReferenceSource === 'auto';
@@ -569,14 +620,17 @@ function updateUIState() {
     
     activateTuningButton.textContent = isTuningActive ? 'Deactivate Tuning' : 'Activate Tuning';
     activateTuningButton.classList.toggle('bg-red-600', isTuningActive);
+    activateTuningButton.classList.toggle('hover:bg-red-700', isTuningActive);
     activateTuningButton.classList.toggle('bg-indigo-600', !isTuningActive);
-    
+    activateTuningButton.classList.toggle('hover:bg-indigo-700', !isTuningActive);
+
     updateTuningStatusSpan();
 }
 
 function updateTuningStatusSpan() {
     if (activateTuningButton.disabled) {
         let statusText = "Select an input device";
+        // --- FIX: Check the new multiSamples object for loading state ---
         if (outputMode === 'webaudio' && Object.keys(multiSamples).length === 0) statusText = "Loading piano sounds...";
         else if (outputMode === 'midi' && !midiOutput) statusText = "Select an output device";
         tuningStatusSpan.textContent = statusText;
@@ -599,56 +653,18 @@ midiInSelect.addEventListener('change', () => {
     updateUIState();
 });
 
-// MODIFIED: Make this async
-midiOutSelect.addEventListener('change', async () => {
+midiOutSelect.addEventListener('change', () => {
     resetAllMidiState();
     midiOutput = midiOutSelect.value ? midiAccess.outputs.get(midiOutSelect.value) : null;
     if (midiOutput) {
         logMessage(`Selected Output: ${midiOutput.name}`);
-        setPitchBendRangeAllChannels(1, 0);
-        midiOutput.send([0xB0 | 0, 122, 0]); // NEW: Optional Local Control OFF
-        await afterOutputSelected();
-    } else {
-        updateStatus('Select an output device to check support.', false);
+        
+        // --- THE FIX: Add this line ---
+        // Send CC #122 (Local Control) with a value of 0 (Off) on channel 1 (0-indexed).
+        midiOutput.send([0xB0, 122, 0]); 
+        logMessage('Sent Local Control OFF command to the output device.');
     }
     updateUIState();
-});
-
-audibleTestBtn.addEventListener('click', async () => { // NEW
-    updateStatus('Playing test note on A4...', false);
-    await audibleMtsRtTest();
-    updateStatus('Test complete. If you heard a detuned note, MTS Real-Time is working.', false);
-});
-
-forcePbCheckbox.addEventListener('change', (e) => {
-  forcePbOnly = e.target.checked;
-  logMessage(`Force Pitch-Bend Only set to: ${forcePbOnly}`);
-  if (!midiOutput) return;
-
-  // Migrate any currently held notes to the new tuning method
-  for (const nStr in activeOnNotes) {
-    const n = parseInt(nStr, 10);
-    const ch = activeNotesToMpeChannel[n];
-    if (ch === undefined) continue;
-    
-    const cents = tuningSmoother.currentTargetCents[n % 12];
-
-    if (forcePbOnly) {
-      // Switch TO pitch bend
-      const v = Math.max(0, Math.min(16383, Math.round(cents * 81.92) + 8192));
-      midiOutput.send([0xE0 | ch, v & 0x7F, (v >> 7) & 0x7F]);
-      notesUsingBend.add(n);
-    } else {
-      // Switch FROM pitch bend (back to MTS)
-      // 1. Reset the pitch bend on this note's channel
-      midiOutput.send([0xE0 | ch, 0x00, 0x40]); 
-      notesUsingBend.delete(n);
-      // 2. Re-apply the tuning with an MTS message
-      if (sysExSupported) {
-          midiOutput.send(createMtsSysex(n, cents));
-      }
-    }
-  }
 });
 
 outputModeRadios.forEach(r => r.addEventListener('change', e => {
@@ -657,36 +673,82 @@ outputModeRadios.forEach(r => r.addEventListener('change', e => {
     midiOutSelect.disabled = outputMode === 'webaudio';
     updateUIState();
 }));
-tuningSystemRadios.forEach(r => r.addEventListener('change', e => { tuningSystem = e.target.value; updateUIState(); }));
-jiReferenceSourceRadios.forEach(r => r.addEventListener('change', e => { jiReferenceSource = e.target.value; updateUIState(); }));
+
+tuningSystemRadios.forEach(r => r.addEventListener('change', e => {
+    tuningSystem = e.target.value;
+    updateUIState();
+}));
+
+jiReferenceSourceRadios.forEach(r => r.addEventListener('change', e => {
+    jiReferenceSource = e.target.value;
+    updateUIState();
+}));
+
 jiScaleTypeSelect.addEventListener('change', e => jiScaleType = e.target.value);
 jiReferenceNoteSelect.addEventListener('change', e => jiReferenceNote = parseInt(e.target.value));
+
 activateTuningButton.addEventListener('click', () => {
     isTuningActive = !isTuningActive;
     if (!isTuningActive) {
         resetAllMidiState();
+        // --- NEW: Instant reset on deactivation ---
         tuningSmoother.targetCents.fill(0);
         tuningSmoother.currentTargetCents.fill(0);
     }
     logMessage(`Tuning adjustments ${isTuningActive ? 'ACTIVATED' : 'DEACTIVATED'}.`);
     updateUIState();
 });
+
+// --- NEW Event Listeners for Simplified UI ---
+
+smartActivateButton.addEventListener('click', () => {
+    // Toggle the master tuning state
+    isTuningActive = !isTuningActive;
+
+    if (isTuningActive) {
+        // If activating, force the correct settings
+        tuningSystem = 'ji';
+        jiReferenceSource = 'auto';
+        
+        // Also update the radio buttons in the advanced panel to reflect this state
+        document.querySelector('input[name="tuningSystem"][value="ji"]').checked = true;
+        document.querySelector('input[name="jiReferenceSource"][value="auto"]').checked = true;
+
+        logMessage('Smart Tuning ACTIVATED (JI, Auto-Detect).');
+    } else {
+        // If deactivating, reset everything
+        resetAllMidiState();
+        tuningSmoother.targetCents.fill(0);
+        tuningSmoother.currentTargetCents.fill(0);
+        logMessage('Smart Tuning DEACTIVATED.');
+    }
+    // Update the entire UI to reflect the new state
+    updateUIState();
+});
+
+advancedControlsToggle.addEventListener('click', () => {
+    advancedControlsContainer.classList.toggle('hidden');
+    const isHidden = advancedControlsContainer.classList.contains('hidden');
+    advancedControlsToggle.textContent = isHidden ? 'Advanced Controls' : 'Hide Advanced Controls';
+});
+
 panicButton.addEventListener('click', resetAllMidiState);
 
-// --- Smoothing loop ---
+// --- NEW: Smoothing loop using requestAnimationFrame ---
 function smoothingLoop() {
-    const nowMs = performance.now(); // MODIFIED
-    const okToSend = (nowMs - lastMtsSendMs) > 33; // ~30 Hz throttle
+    // --- Dynamic Smoothing Factor ---
+    const fastTempoThreshold = 100; // From updateAdaptiveWindow
+    const smoothingBase = 0.05; // Slower base for more noticeable smoothing
+    const dynamicFactor = Math.min(0.3, smoothingBase + (fastTempoThreshold / tempoTracker.avgTime) * 0.15);
 
-    // ... smoothing math is unchanged ...
-    const smoothingBase = 0.05;
-    const dynamicFactor = Math.min(0.3, smoothingBase + (100 / tempoTracker.avgTime) * 0.15);
     for (let i = 0; i < 12; i++) {
-        tuningSmoother.currentTargetCents[i] += (tuningSmoother.targetCents[i] - tuningSmoother.currentTargetCents[i]) * dynamicFactor;
+        const current = tuningSmoother.currentTargetCents[i];
+        const target = tuningSmoother.targetCents[i];
+        tuningSmoother.currentTargetCents[i] += (target - current) * dynamicFactor;
     }
 
-    // MODIFIED: Retune held notes, but throttled
-    if (isTuningActive && outputMode === 'midi' && midiOutput && okToSend) {
+    // --- Retune Held Notes ---
+    if (isTuningActive && outputMode === 'midi' && midiOutput) {
         for (const noteStr in activeOnNotes) {
             const note = parseInt(noteStr);
             const pitchClass = note % 12;
@@ -695,10 +757,9 @@ function smoothingLoop() {
             if (Math.abs(cents) > 0.1) {
                 const assignedChannel = activeNotesToMpeChannel[note];
                 if (assignedChannel !== undefined) {
-                    // This logic now respects the forcePbOnly toggle
-                    if (!forcePbOnly && sysExSupported) {
+                    if (sysExSupported) {
                         midiOutput.send(createMtsSysex(note, cents));
-                    } else if (notesUsingBend.has(note)) {
+                    } else if (notesUsingBend.has(note)) { // Only send bend if it was originally used
                         const bendValue = Math.round(cents * 81.92) + 8192;
                         const lsb = bendValue & 0x7F;
                         const msb = (bendValue >> 7) & 0x7F;
@@ -707,7 +768,6 @@ function smoothingLoop() {
                 }
             }
         }
-        lastMtsSendMs = nowMs; // Update timestamp after sending
     }
     
     requestAnimationFrame(smoothingLoop);
@@ -716,9 +776,14 @@ function smoothingLoop() {
 // --- Initialization ---
 logMessage("Requesting MIDI access...");
 if (navigator.requestMIDIAccess) {
-    navigator.requestMIDIAccess({ sysex: true }).then(onMIDISuccess, onMIDIFailure);
+    navigator.requestMIDIAccess({ sysex: true })
+        .then(onMIDISuccess)
+        .catch(onMIDIFailure);
 } else { 
     logMessage("Web MIDI API is not supported in this browser.", true); 
+    statusDiv.textContent = "Web MIDI API is not supported in this browser.";
+    statusDiv.className = 'mb-4 p-3 rounded-md bg-red-100 text-red-800';
 }
+
 updateUIState();
-requestAnimationFrame(smoothingLoop);
+requestAnimationFrame(smoothingLoop); // Start the smoothing loop
