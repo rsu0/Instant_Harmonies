@@ -6,8 +6,9 @@ body {
     font-family: 'Inter', sans-serif;
 }
 
+/* Hide system messages by default for cleaner UI */
 #messageLog {
-    height: 250px;
+    height: 200px;
     overflow-y: scroll;
     border: 1px solid #ccc;
     padding: 10px;
@@ -41,6 +42,10 @@ select {
     transition: all 0.3s ease-in-out;
 }
 
+.key-display-mini {
+    transition: all 0.3s ease-in-out;
+}
+
 #advancedControlsContainer {
     transition: all 0.3s ease-in-out;
     overflow: hidden;
@@ -52,5 +57,25 @@ select {
     padding-bottom: 0;
     margin-bottom: 0;
     border-top: 0;
+}
+
+/* Improve button hover effects */
+button {
+    transition: all 0.2s ease-in-out;
+}
+
+button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+button:active {
+    transform: translateY(0);
+}
+
+/* Make the main button more prominent */
+#smartActivateButton {
+    font-size: 1.1rem;
+    letter-spacing: 0.025em;
 }
 

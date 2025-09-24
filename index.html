@@ -1,9 +1,22 @@
 <!DOCTYPE html>
+<!--
+HARMONY TUNER
+A practical tool for enhancing musical harmonies through intelligent tuning
+
+HOW TO USE:
+1. Connect your MIDI keyboard/device above
+2. Choose your sound output (external device or built-in piano)
+3. Click "Start Auto-Tuning" to automatically detect keys and tune harmonies
+4. Play music and enjoy more natural, beautiful harmonies
+
+The tool automatically detects what key you're playing in and adjusts the tuning
+to create more harmonious intervals based on natural harmonic relationships.
+-->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Harmonies - Key-Aware Tuner</title>
+    <title>Instant Harmonies</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
@@ -16,68 +29,91 @@
 
     <header class="mb-6">
         <h1 class="text-3xl font-bold text-gray-800">Instant Harmonies</h1>
-        <p class="text-gray-600">A Just Intonation tuner with real-time key detection. By Rui Su, Joseph Timoney.</p>
+        <p class="text-gray-600">Automatic tuning for naturally beautiful harmonies</p>
     </header>
 
     <main class="flex-grow bg-white p-6 rounded-lg shadow-md overflow-y-auto">
         <div id="status" class="mb-4 p-3 rounded-md bg-blue-100 text-blue-800">
-            Initializing MIDI... Please allow MIDI access (including SysEx) if prompted.
+            Getting ready... Please allow access to your MIDI devices when prompted.
+        </div>
+
+        <!-- Quick Start Guide -->
+        <div id="quickStartGuide" class="mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg">
+            <h3 class="text-lg font-semibold text-indigo-800 mb-2">Quick Start</h3>
+            <ol class="text-sm text-indigo-700 space-y-1">
+                <li><strong>1.</strong> Connect your MIDI keyboard/device below</li>
+                <li><strong>2.</strong> Choose where you want the sound to come from</li>
+                <li><strong>3.</strong> Click "Start Auto-Tuning" and play music!</li>
+            </ol>
+            <p class="text-xs text-indigo-600 mt-2">The tool will automatically detect what key you're playing and adjust tuning for more beautiful harmonies.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
-                <label for="midiIn" class="block text-sm font-medium text-gray-700 mb-1">MIDI Input:</label>
+                <label for="midiIn" class="block text-sm font-medium text-gray-700 mb-1">Keyboard/Input Device:</label>
                 <select id="midiIn" class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></select>
             </div>
             <div>
-                <label for="midiOut" class="block text-sm font-medium text-gray-700 mb-1">MIDI Output:</label>
+                <label for="midiOut" class="block text-sm font-medium text-gray-700 mb-1">Sound Output Device:</label>
                 <select id="midiOut" class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></select>
             </div>
         </div>
 
         <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Audio Output Mode:</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Sound Source:</label>
             <div class="radio-group mt-1">
-                <label><input type="radio" name="outputMode" value="midi" checked> MIDI Output Device</label>
-                <label><input type="radio" name="outputMode" value="webaudio"> Internal Piano Synth</label>
+                <label><input type="radio" name="outputMode" value="midi" checked> External Device/Software</label>
+                <label><input type="radio" name="outputMode" value="webaudio"> Built-in Piano Sound</label>
             </div>
         </div>
 
         <div class="mb-6 p-4 border border-dashed border-gray-300 rounded-md">
             <div class="flex justify-between items-center mb-3">
-                <h2 class="text-lg font-semibold text-gray-700">Tuning Configuration</h2>
+                <h2 class="text-lg font-semibold text-gray-700">Harmony Enhancement</h2>
                 <button id="advancedControlsToggle" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">
-                    Advanced Controls
+                    Show Options
                 </button>
             </div>
 
             <div class="text-center mb-4">
                 <button id="smartActivateButton" class="w-full md:w-1/2 px-6 py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-700 transition-colors disabled:opacity-50">
-                    Activate Smart Tuning
+                    Start Auto-Tuning
                 </button>
-                <p id="smartStatus" class="mt-2 text-sm text-gray-600">Inactive</p>
+                <p id="smartStatus" class="mt-2 text-sm text-gray-600">Off</p>
             </div>
 
             <div id="advancedControlsContainer" class="hidden pt-4 border-t border-gray-200">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Tuning System:</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tuning Style:</label>
                         <div class="radio-group mt-1">
-                            <label><input type="radio" name="tuningSystem" value="12tet" checked> 12-TET</label>
-                            <label><input type="radio" name="tuningSystem" value="ji"> Just Intonation</label>
+                            <label><input type="radio" name="tuningSystem" value="12tet" checked> Standard (Equal Temperament)</label>
+                            <label><input type="radio" name="tuningSystem" value="ji"> Natural Harmonies (Just Intonation)</label>
                         </div>
                     </div>
+                    <div>
+                        <label for="pitchBendRange" class="block text-sm font-medium text-gray-700 mb-1">Pitch Bend Range (semitones):</label>
+                        <select id="pitchBendRange" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                            <option value="2" selected>±2 (Default)</option>
+                            <option value="7">±7</option>
+                            <option value="12">±12 (Octave)</option>
+                            <option value="24">±24 (Two Octaves)</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">Match your MIDI device's pitch bend range</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
                     <div id="jiOptionsContainer">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">JI Reference Source:</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Key Detection:</label>
                         <div class="radio-group mt-1">
-                            <label><input type="radio" name="jiReferenceSource" value="manual" checked> Manual</label>
-                            <label><input type="radio" name="jiReferenceSource" value="auto"> Auto-Detect Key</label>
+                            <label><input type="radio" name="jiReferenceSource" value="manual" checked> Set Manually</label>
+                            <label><input type="radio" name="jiReferenceSource" value="auto"> Auto-Detect While Playing</label>
                         </div>
                     </div>
                 </div>
                 <div id="manualJiControls" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label for="jiReferenceNote" class="block text-sm font-medium text-gray-700 mb-1">Reference Key:</label>
+                        <label for="jiReferenceNote" class="block text-sm font-medium text-gray-700 mb-1">Key Center:</label>
                         <select id="jiReferenceNote" class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></select>
                     </div>
                     <div>
@@ -89,24 +125,24 @@
                     </div>
                 </div>
                 <div id="autoDetectControls" class="hidden">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Harmonic Analysis:</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Detected Key:</label>
                     <div id="detectedKeyDisplay" class="key-display mt-2 p-3 text-center rounded-md bg-gray-100 border border-gray-300">
                         <span class="font-semibold text-lg text-gray-500">Play some notes to detect the key...</span>
                     </div>
                 </div>
                 <div class="mt-4 flex items-center">
-                    <button id="activateTuningButton" class="px-4 py-2 bg-indigo-600 text-white rounded-md shadow disabled:opacity-50">Activate Tuning</button>
-                    <span id="tuningStatus" class="ml-4 text-sm text-gray-600">Adjustments Inactive</span>
+                    <button id="activateTuningButton" class="px-4 py-2 bg-indigo-600 text-white rounded-md shadow disabled:opacity-50">Apply Tuning</button>
+                    <span id="tuningStatus" class="ml-4 text-sm text-gray-600">Not Active</span>
                 </div>
             </div>
             
             <div class="mt-4">
-                <button id="panicButton" class="px-4 py-2 bg-red-600 text-white rounded-md shadow hover:bg-red-700">Panic (Reset MIDI)</button>
+                <button id="panicButton" class="px-4 py-2 bg-red-600 text-white rounded-md shadow hover:bg-red-700">Stop All Sounds</button>
             </div>
         </div>
 
-        <div>
-            <h2 class="text-lg font-semibold text-gray-700 mb-2">MIDI Message Log:</h2>
+        <div class="hidden">
+            <h2 class="text-lg font-semibold text-gray-700 mb-2">System Messages:</h2>
             <div id="messageLog"></div>
         </div>
     </main>
