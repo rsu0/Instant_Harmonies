@@ -1,0 +1,54 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Vagrant
+.vagrant
+
+# nnls binaries
+nnls-chroma-1.1/chromaextract
+nnls-chroma-1.1/chordextract
+
+# ignoring audio files
+*.mp3
+*.wav
+
+# ignoring temporary csv outputs
+*.csv
+
+# Ignoring compiled python
+*.pyc
+
+# ignoring build and bin folders
+build/
+bin/
+logs/
