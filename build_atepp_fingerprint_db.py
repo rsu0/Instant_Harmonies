@@ -1,42 +1,34 @@
 #!/usr/bin/env python3
 """
-Build ATEPP Fingerprint Database
-Generates key-aware n-gram fingerprints for all ATEPP pieces
+Builds the fingerprint database from the full ATEPP dataset.
+Run this if you have the complete ATEPP-1.2 collection.
 """
 
 import os
 import sys
-
 import pandas as pd
 
 sys.path.insert(0, 'MIDI-Zero-main')
 from simple_ngram_fingerprinting import SimpleNGramFingerprinter, get_midi_files
 
-print("="*70)
-print("ATEPP FINGERPRINT DATABASE BUILDER")
-print("="*70)
-print()
+print("Building ATEPP fingerprint database...\n")
 
-# Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ATEPP_PATH = os.path.join(BASE_DIR, 'ATEPP-1.2', 'ATEPP-1.2')
 METADATA_PATH = os.path.join(BASE_DIR, 'ATEPP-1.2', 'ATEPP-metadata-1.2.csv')
 OUTPUT_DB = "atepp_fingerprint_database.pkl"
 
-print("Configuration:")
-print(f"  ATEPP path: {ATEPP_PATH}")
-print(f"  Metadata: {METADATA_PATH}")
-print(f"  Output: {OUTPUT_DB}")
-print()
+print(f"ATEPP path: {ATEPP_PATH}")
+print(f"Metadata: {METADATA_PATH}")
+print(f"Output: {OUTPUT_DB}\n")
 
-# Step 1: Load ATEPP MIDI files
-print("Step 1: Loading ATEPP MIDI files...")
+# Load MIDI files
+print("Loading ATEPP MIDI files...")
 midi_files = get_midi_files(ATEPP_PATH)
-print(f"  ✓ Found {len(midi_files)} MIDI files")
-print()
+print(f"Found {len(midi_files)} MIDI files\n")
 
-# Step 2: Load metadata
-print("Step 2: Loading metadata...")
+# Load metadata
+print("Loading metadata...")
 try:
     df = pd.read_csv(METADATA_PATH)
     metadata_map = {}
@@ -55,37 +47,25 @@ try:
             
             metadata_map[filename] = display_name
     
-    print(f"  ✓ Loaded metadata for {len(metadata_map)} compositions")
+    print(f"Loaded metadata for {len(metadata_map)} compositions\n")
 except Exception as e:
-    print(f"  ⚠ Warning: Could not load metadata: {e}")
+    print(f"Warning: Could not load metadata: {e}")
     metadata_map = {}
 
-print()
-
-# Step 3: Build fingerprint database
-print("Step 3: Building fingerprint database...")
-print("  This will take ~10-15 minutes on M4")
-print()
+# Build fingerprint database (this takes a while)
+print("Building fingerprint database...")
+print("This takes about 10-15 minutes...\n")
 
 fingerprinter = SimpleNGramFingerprinter(n=4)
 fingerprinter.build_database(midi_files, metadata_map)
 
-print()
 
-# Step 4: Save database
-print("Step 4: Saving database...")
+# Save it
+print("\nSaving database...")
 fingerprinter.save_database(OUTPUT_DB)
 
-# Statistics
-print()
-print("="*70)
-print("DATABASE STATISTICS")
-print("="*70)
-print(f"Total pieces: {len(set(piece for fp_dict in fingerprinter.database.values() for piece in fp_dict))}")
-print(f"Total unique fingerprints: {len(fingerprinter.database):,}")
-print(f"Database file: {OUTPUT_DB}")
-print()
-print("✓ ATEPP fingerprint database ready!")
-print("✓ Can now identify pieces with key-aware matching!")
-print("="*70)
+# Done
+num_pieces = len(set(piece for fp_dict in fingerprinter.database.values() for piece in fp_dict))
+print(f"\nDone! {num_pieces} pieces, {len(fingerprinter.database):,} unique fingerprints")
+print(f"Saved to: {OUTPUT_DB}")
 

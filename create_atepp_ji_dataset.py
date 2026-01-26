@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 """
-Create ATEPP_JI_Dataset - Filtered Dataset for Just Intonation Research
-========================================================================
-This script creates a filtered version of ATEPP containing only pieces
-with MusicXML scores, suitable for predictive JI tuning research.
-
-Output:
-- ATEPP_JI_Dataset/ATEPP-1.2/  (mirrored structure with only score-available pieces)
-- ATEPP_JI_Dataset/ATEPP-metadata-JI.csv  (filtered metadata)
-- ATEPP_JI_Dataset/README.md  (dataset documentation)
+Creates ATEPP_JI_Dataset - a filtered version of ATEPP containing only pieces
+that have MusicXML scores. This is useful for predictive tuning research where
+you need guaranteed score availability.
 """
 
 import os
@@ -19,37 +13,27 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 
-# Configuration
+# Change these paths to match your setup
 SOURCE_ATEPP = Path('/Users/ruisu/Desktop/phd/JustIntonation/THESIS/LR/Code/ATEPP-1.2')
 SOURCE_METADATA = SOURCE_ATEPP / 'ATEPP-metadata-1.2.csv'
 TARGET_DIR = Path('/Users/ruisu/Desktop/phd/JustIntonation/THESIS/LR/Code/ATEPP_JI_Dataset')
 TARGET_DATA = TARGET_DIR / 'ATEPP-1.2'
 
-print("=" * 70)
-print("ATEPP_JI_DATASET CREATOR")
-print("Filtered Dataset for Just Intonation Research")
-print("=" * 70)
-print()
+print("Creating filtered ATEPP dataset (MusicXML scores only)\n")
 
-# Step 1: Load and analyze metadata
-print("Step 1: Loading ATEPP metadata...")
+print("Loading ATEPP metadata...")
 df = pd.read_csv(SOURCE_METADATA)
 
 total_entries = len(df)
 entries_with_scores = df['score_path'].notna().sum()
 
-print(f"  Total ATEPP entries: {total_entries:,}")
-print(f"  Entries with MusicXML scores: {entries_with_scores:,} ({entries_with_scores/total_entries*100:.1f}%)")
-print()
+print(f"Total entries: {total_entries:,}")
+print(f"With MusicXML: {entries_with_scores:,} ({entries_with_scores/total_entries*100:.1f}%)\n")
 
-# Step 2: Filter to entries with scores
-print("Step 2: Filtering to entries with MusicXML scores...")
 df_filtered = df[df['score_path'].notna()].copy()
-print(f"  Filtered entries: {len(df_filtered):,}")
-print()
+print(f"Filtered to {len(df_filtered):,} entries\n")
 
-# Step 3: Verify source files exist and build copy list
-print("Step 3: Verifying source files exist...")
+print("Verifying source files...")
 files_to_copy = []  # (source, dest) tuples
 missing_files = []
 valid_entries = []
@@ -82,34 +66,26 @@ for idx, row in tqdm(df_filtered.iterrows(), total=len(df_filtered), desc="  Ver
             missing.append(f"Score: {score_rel}")
         missing_files.extend(missing)
 
-print(f"  ✓ Valid entries: {len(valid_entries):,}")
+print(f"Valid: {len(valid_entries):,}")
 if missing_files:
-    print(f"  ⚠ Missing files: {len(missing_files)}")
-print()
+    print(f"Missing: {len(missing_files)}")
 
-# Deduplicate files (same score used by multiple performances)
+# Dedupe (same score can be used by multiple performances)
 unique_files = {}
 for src, dest in files_to_copy:
     if str(dest) not in unique_files:
         unique_files[str(dest)] = (src, dest)
-
 files_to_copy = list(unique_files.values())
-print(f"  Unique files to copy: {len(files_to_copy):,}")
-print()
 
-# Step 4: Create target directory structure and copy files
-print("Step 4: Creating ATEPP_JI_Dataset directory and copying files...")
+print(f"Unique files to copy: {len(files_to_copy):,}\n")
 
-# Create base directory
+print("Copying files...")
+
 TARGET_DIR.mkdir(parents=True, exist_ok=True)
 
-# Copy files
 copied_count = 0
-for src, dest in tqdm(files_to_copy, desc="  Copying"):
-    # Create parent directories
+for src, dest in tqdm(files_to_copy, desc="Copying"):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Copy file (if not already exists or is different)
     if not dest.exists():
         shutil.copy2(src, dest)
         copied_count += 1
@@ -117,32 +93,21 @@ for src, dest in tqdm(files_to_copy, desc="  Copying"):
         shutil.copy2(src, dest)
         copied_count += 1
 
-print(f"  ✓ Copied {copied_count:,} files")
-print()
+print(f"Copied {copied_count:,} files\n")
 
-# Step 5: Create filtered metadata CSV
-print("Step 5: Creating filtered metadata CSV...")
+print("Creating metadata CSV...")
 
 df_ji = df.loc[valid_entries].copy()
 
-# Save filtered metadata
 metadata_path = TARGET_DIR / 'ATEPP-metadata-JI.csv'
 df_ji.to_csv(metadata_path, index=False)
+print(f"Saved: {metadata_path}\n")
 
-print(f"  ✓ Saved: {metadata_path}")
-print(f"  ✓ Entries in filtered metadata: {len(df_ji):,}")
-print()
-
-# Step 6: Generate statistics
-print("Step 6: Generating dataset statistics...")
-
-# Composer distribution
 composer_counts = df_ji['composer'].value_counts()
 unique_compositions = df_ji['composition_id'].nunique()
 unique_scores = df_ji['score_path'].nunique()
 
-# Step 7: Create README documentation
-print("Step 7: Creating README documentation...")
+print("Creating README...")
 
 readme_content = f"""# ATEPP_JI_Dataset
 ## Filtered Dataset for Just Intonation Research
@@ -272,32 +237,15 @@ readme_path = TARGET_DIR / 'README.md'
 with open(readme_path, 'w') as f:
     f.write(readme_content)
 
-print(f"  ✓ Saved: {readme_path}")
-print()
+print(f"Saved: {readme_path}")
 
-# Final summary
-print("=" * 70)
-print("ATEPP_JI_DATASET CREATION COMPLETE")
-print("=" * 70)
-print()
-print(f"Location: {TARGET_DIR}")
-print()
-print("Contents:")
-print(f"  📁 ATEPP-1.2/           ({len(files_to_copy):,} files)")
-print(f"  📄 ATEPP-metadata-JI.csv ({len(df_ji):,} entries)")
-print(f"  📄 README.md            (documentation)")
-print()
-print("Statistics:")
-print(f"  MIDI performances: {len(df_ji):,}")
-print(f"  Unique compositions: {unique_compositions:,}")
-print(f"  Unique MusicXML scores: {unique_scores:,}")
-print(f"  Composers: {len(composer_counts):,}")
-print()
-print("Top 5 composers by performance count:")
+# Summary
+print(f"\nDone! Dataset created at {TARGET_DIR}")
+print(f"  {len(files_to_copy):,} files")
+print(f"  {len(df_ji):,} MIDI performances")
+print(f"  {unique_compositions:,} unique compositions")
+print(f"  {unique_scores:,} MusicXML scores")
+print(f"\nTop composers:")
 for composer, count in composer_counts.head(5).items():
-    print(f"  • {composer}: {count:,} performances")
-print()
-print("=" * 70)
-print("✓ Dataset ready for use with predictive JI tuning system!")
-print("=" * 70)
+    print(f"  {composer}: {count:,}")
 
