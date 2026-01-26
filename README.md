@@ -1,4 +1,4 @@
-# Just Intonation Tuner
+# Instant Harmonies - Just Intonation Tuner
 
 A real-time just intonation tuning system for MIDI keyboards. It listens to what you play, figures out the key, and applies pure interval tuning on the fly.
 
