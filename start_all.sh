@@ -1,6 +1,5 @@
 #!/bin/bash
 # Starts both the Python backend and a simple HTTP server for the frontend.
-# Press Ctrl+C to stop everything.
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
