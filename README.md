@@ -17,7 +17,7 @@ The interesting part: if you're playing a known piece (from the ATEPP dataset), 
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Web Frontend                              │
+│                        Web Frontend                             │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐│
 │  │   MIDI   │  │   Key    │  │  Tuning  │  │    Recording     ││
 │  │  Input   │  │Detection │  │  Engine  │  │    & Export      ││
@@ -27,7 +27,7 @@ The interesting part: if you're playing a known piece (from the ATEPP dataset), 
         └─────────────┴──────┬──────┴─────────────────┘
                              │ WebSocket
         ┌────────────────────┴────────────────────┐
-        │         Two-Stage Python Server          │
+        │         Two-Stage Python Server         │
         │  ┌──────────────┐  ┌──────────────────┐ │
         │  │  Fingerprint │  │  Score Following │ │
         │  │ Identification│  │   (Parangonar)  │ │
