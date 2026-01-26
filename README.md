@@ -16,8 +16,8 @@ The interesting part: if you're playing a known piece (from the ATEPP dataset), 
 ## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Web Frontend                             │
+┌────────────────────────────────────────────────────────────────┐
+│                        Web Frontend                            │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐│
 │  │   MIDI   │  │   Key    │  │  Tuning  │  │    Recording     ││
 │  │  Input   │  │Detection │  │  Engine  │  │    & Export      ││
