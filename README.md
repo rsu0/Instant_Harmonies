@@ -1,20 +1,19 @@
 # Just Intonation Tuner
 
-A real-time adaptive just intonation tuning system for MIDI instruments with two-stage predictive tuning using music fingerprinting and score following.
+A real-time just intonation tuning system for MIDI keyboards. It listens to what you play, figures out the key, and applies pure interval tuning on the fly.
 
-## Features
+The interesting part: if you're playing a known piece (from the ATEPP dataset), it can identify the piece from the first few notes and use the actual key signatures from the score for more accurate tuning.
 
-- **Real-time MIDI Tuning**: Apply just intonation tuning to live MIDI input
-- **Key Detection**: Automatic key detection using ensemble methods
-- **Two-Stage Predictive System**:
-  - Stage 1: N-gram fingerprint identification to recognize the piece being played
-  - Stage 2: Score following with Parangonar for predictive note tuning
-- **MusicXML Key Signatures**: Extract authentic key information from scores
-- **Multiple Tuning Modes**: Support for MTS (MIDI Tuning Standard) and MPE (MIDI Polyphonic Expression)
-- **MIDI Recording**: Record performances with JI tuning applied
-- **File Tuning**: Apply JI tuning to existing MIDI files with export to MIDI 1.0 or MIDI 2.0
+## What it does
 
-## System Architecture
+- **Live tuning** - Plug in a MIDI keyboard, hit play, and hear just intonation instead of equal temperament
+- **Key detection** - Uses an ensemble of three algorithms (Albrecht-Shanahan, Temperley, Krumhansl-Kessler) to figure out what key you're in
+- **Piece identification** - If you're playing something from ATEPP, it'll recognize it and pull the real key signatures from the MusicXML score
+- **Score following** - Once it knows the piece, it tracks where you are and predicts upcoming notes
+- **File tuning** - Drop in a MIDI file, and it'll export a tuned version (MIDI 1.0 with MTS or MIDI 2.0)
+- **Recording** - Record your performance with JI tuning baked in
+
+## How it works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -36,132 +35,101 @@ A real-time adaptive just intonation tuning system for MIDI instruments with two
         └─────────────────────────────────────────┘
 ```
 
-## Quick Start
+The frontend handles MIDI I/O and basic key detection. When the Python server is running, it adds piece identification (via n-gram fingerprinting) and score following (via Parangonar).
 
-### Prerequisites
+## Getting started
 
-- Python 3.9+
-- Node.js (optional, for development)
-- Web browser with Web MIDI API support (Chrome/Edge recommended)
+You'll need Python 3.9+ and a browser that supports Web MIDI (Chrome or Edge work best).
 
-### Installation
-
-1. Clone the repository:
 ```bash
 git clone https://github.com/rsu0/Instant_Harmonies.git
 cd Instant_Harmonies
-```
-
-2. Install Python dependencies:
-```bash
 pip install -r requirements.txt
 ```
 
-3. Download the ATEPP dataset (optional, for piece identification):
-   - Place the ATEPP-1.2 dataset in `ATEPP_JI_Dataset/ATEPP-1.2/`
-   - Or build your own fingerprint database
+### Running it
 
-4. Build the fingerprint database (if using piece identification):
-```bash
-python build_atepp_fingerprint_db.py
-```
+**Simplest way** - Just open `index.html` in your browser. You get live tuning and key detection, but no piece identification.
 
-### Running the System
-
-**Option 1: Full system with piece identification**
+**Full system** - Run the backend too:
 ```bash
 ./start_all.sh
 ```
+This starts both the Python server and a local web server. Open http://localhost:8000.
 
-**Option 2: Frontend only (no piece identification)**
-Simply open `index.html` in a browser with Web MIDI support.
-
-**Option 3: Manual start**
+**Manual startup** (if the script doesn't work):
 ```bash
-# Start the two-stage server
 python two_stage_server.py --port 5005
-
-# Open index.html in browser
+# Then open index.html in your browser
 ```
 
-## Project Structure
+### Setting up piece identification (optional)
 
-```
-├── index.html                    # Main web application
-├── js/                           # JavaScript modules
-│   ├── main.js                   # Application entry point
-│   ├── audio-engine.js           # Web Audio synthesis
-│   ├── key-detection.js          # Key detection algorithms
-│   ├── tuning-core.js            # JI ratio calculations
-│   ├── tuning-mts.js             # MTS SysEx implementation
-│   ├── tuning-mpe.js             # MPE pitch bend implementation
-│   ├── midi-parser.js            # MIDI file parsing
-│   ├── midi-writer.js            # MIDI file export
-│   ├── midi-file-tuner.js        # Apply JI to MIDI files
-│   ├── midi-recorder.js          # Live performance recording
-│   └── latency-metrics.js        # Performance monitoring
-├── two_stage_server.py           # Python WebSocket server
-├── two_stage_client.js           # WebSocket client
-├── simple_ngram_fingerprinting.py # Fingerprint algorithm
-├── build_atepp_fingerprint_db.py  # Database builder
-├── create_atepp_ji_dataset.py     # Dataset creation
-├── create_filtered_database.py    # Database filtering
-├── start_all.sh                   # Startup script
-├── requirements.txt               # Python dependencies
-├── justkeydding-master/           # Key detection library
-├── parangonar-main/               # Score following library
-└── partitura-main/                # Music parsing library
-```
+If you want the system to recognize pieces and use their actual key signatures:
 
-## Usage
+1. Get the ATEPP dataset and put it in `ATEPP_JI_Dataset/ATEPP-1.2/`
+2. Build the fingerprint database:
+   ```bash
+   python build_atepp_fingerprint_db.py
+   ```
+   This takes 10-15 minutes and creates a ~100MB database.
 
-### Real-time Tuning
+## Using it
 
-1. Connect a MIDI keyboard
-2. Select input/output devices in the web interface
-3. Click "Start" to begin tuning
-4. Play - the system will detect keys and apply JI tuning
+### Live tuning
+1. Connect your MIDI keyboard
+2. Select input/output in the web UI
+3. Hit "Start"
+4. Play something - the key display updates as you go
 
-### File Tuning
-
-1. Click "Select MIDI File" and choose a .mid file
-2. Select auto-detect or manual key
+### Tuning a MIDI file
+1. Click "Select MIDI File"
+2. Choose auto-detect or pick a key manually
 3. Click "Apply Tuning"
-4. Download the tuned MIDI file
+4. Download the result
 
 ### Recording
+1. Click "Record" and play
+2. Click "Stop" when done
+3. Download as MIDI 1.0 (with MTS tuning) or MIDI 2.0
 
-1. Click "Record" to start recording your performance
-2. Play with JI tuning applied in real-time
-3. Click "Stop" when finished
-4. Download as MIDI 1.0 (with MTS) or MIDI 2.0
+## Tuning modes
+
+The system supports two ways of sending microtuning data:
+
+- **MTS** (MIDI Tuning Standard) - Uses SysEx messages. High precision but not all synths support it.
+- **MPE** (MIDI Polyphonic Expression) - Uses per-channel pitch bend. Works with more synths but slightly less precise.
+
+It tries MTS first and falls back to MPE if needed. You can also switch manually.
+
+## Project layout
+
+```
+index.html                     - Main UI
+js/
+  main.js                      - App orchestration
+  key-detection.js             - Ensemble key detection
+  tuning-core.js               - JI ratio math
+  tuning-mts.js, tuning-mpe.js - Tuning output modes
+  midi-*.js                    - MIDI parsing/writing/recording
+  audio-engine.js              - Built-in synth (Salamander samples)
+
+two_stage_server.py            - Python backend for piece ID + score following
+simple_ngram_fingerprinting.py - Fingerprint algorithm
+```
 
 ## Dependencies
 
-### Python
-- Flask & Flask-SocketIO (WebSocket server)
-- Parangonar (score following)
-- Partitura (music parsing)
-- pretty_midi (MIDI processing)
-- NumPy, Pandas, PyTorch
+Python side: Flask, Flask-SocketIO, Parangonar, Partitura, pretty_midi, PyTorch
 
-### JavaScript (no build required)
-- All modules are vanilla ES6, no bundler needed
+JavaScript: Vanilla ES6, no build step needed
 
-## External Libraries
+## Credits
 
-This project includes the following external libraries:
-
-- **justkeydding**: Key detection (C++ with Python bindings)
-- **parangonar**: Real-time score following
-- **partitura**: MusicXML/MIDI parsing
+- [Parangonar](https://github.com/sildater/parangonar) for score following
+- [Partitura](https://github.com/CPJKU/partitura) for MusicXML parsing
+- ATEPP dataset for the piano performance data
 
 ## License
 
-MIT License
-
-## Acknowledgments
-
-- ATEPP Dataset for piano performance data
-- Parangonar for score following algorithms
-- Partitura for music parsing utilities
+MIT

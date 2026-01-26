@@ -16,6 +16,11 @@ build/
 *.pkl
 ATEPP_JI_Dataset/ATEPP-1.2/
 
+# External libraries (install via pip instead)
+parangonar-main/
+partitura-main/
+justkeydding-master/
+
 # Thesis-related files (excluded from code repository)
 *THESIS*.md
 *THESIS*.tex
