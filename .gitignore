@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Large data files (use Git LFS or download separately)
+*.pkl
+ATEPP_JI_Dataset/ATEPP-1.2/
+
+# External libraries (install via pip instead)
+parangonar-main/
+partitura-main/
+justkeydding-master/
+
+# Thesis-related files (excluded from code repository)
+*THESIS*.md
+*THESIS*.tex
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

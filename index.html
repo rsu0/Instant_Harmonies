@@ -1,156 +1,387 @@
 <!DOCTYPE html>
-<!--
-HARMONY TUNER
-A practical tool for enhancing musical harmonies through intelligent tuning
-
-HOW TO USE:
-1. Connect your MIDI keyboard/device above
-2. Choose your sound output (external device or built-in piano)
-3. Click "Start Auto-Tuning" to automatically detect keys and tune harmonies
-4. Play music and enjoy more natural, beautiful harmonies
-
-The tool automatically detects what key you're playing in and adjusts the tuning
-to create more harmonious intervals based on natural harmonic relationships.
--->
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Harmonies</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.23.1/es6/core.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.23.1/es6/music_vae.js"></script>
-    
-    <link rel="stylesheet" href="styles.css">
+    <title>Just Intonation Tuner</title>
+    <style>
+        body { font-family: 'Times New Roman', serif; max-width: 900px; margin: 40px auto; padding: 20px; background: white; color: black; }
+        h1 { text-align: center; font-size: 24px; margin-bottom: 5px; font-weight: normal; }
+        .subtitle { text-align: center; font-size: 14px; margin-bottom: 30px; }
+        .section { border: 1px solid black; padding: 20px; margin-bottom: 20px; }
+        .section h2 { font-size: 16px; margin-top: 0; border-bottom: 1px solid black; padding-bottom: 5px; font-weight: normal; }
+        select, button { font-family: inherit; font-size: 14px; padding: 5px 10px; margin: 5px; background: white; border: 1px solid black; cursor: pointer; }
+        button:hover { background: whitesmoke; }
+        button:disabled { background: lightgray; color: gray; cursor: not-allowed; border-color: gray; }
+        .status { padding: 10px; border: 1px solid black; margin: 10px 0; font-size: 13px; }
+        .key-display { font-size: 32px; text-align: center; padding: 20px; border: 1px solid black; margin: 20px 0; min-height: 80px; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+        .confidence { font-size: 12px; margin-top: 10px; }
+        label { display: block; margin-top: 10px; }
+        input[type="radio"] { margin-right: 5px; }
+        .radio-group { margin: 10px 0; }
+        .radio-group label { display: inline; margin-right: 20px; }
+        .tuning-mode-badge { display: inline-block; padding: 3px 10px; font-size: 12px; border: 1px solid black; }
+        .file-info, .key-segments { font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid black; margin: 10px 0; }
+        .key-segments { font-size: 11px; max-height: 150px; overflow-y: auto; }
+        .key-segment { padding: 3px 0; border-bottom: 1px solid lightgray; }
+        .key-segment:last-child { border-bottom: none; }
+        #recordButton { min-width: 140px; }
+        #consoleDisplay { font-family: monospace; font-size: 11px; background: black; color: white; padding: 15px; max-height: 300px; overflow-y: auto; }
+        .small { font-size: 11px; }
+        .mono { font-family: monospace; }
+        .mt { margin-top: 10px; }
+        .mb { margin-bottom: 10px; }
+        .hidden { display: none; }
+    </style>
 </head>
-<body class="bg-gray-100 flex flex-col h-screen p-4 md:p-6">
-
-    <header class="mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">Instant Harmonies</h1>
-        <p class="text-gray-600">Automatic tuning for naturally beautiful harmonies</p>
-    </header>
-
-    <main class="flex-grow bg-white p-6 rounded-lg shadow-md overflow-y-auto">
-        <div id="status" class="mb-4 p-3 rounded-md bg-blue-100 text-blue-800">
-            Getting ready... Please allow access to your MIDI devices when prompted.
+<body>
+    <h1>Just Intonation Tuner</h1>
+    <p class="subtitle">Real-time adaptive tuning system</p>
+    
+    <div class="section">
+        <h2>MIDI Configuration</h2>
+        <label>Input Device:</label>
+        <select id="midiInput"><option value="">Select MIDI Input...</option></select>
+        <label>Output Device:</label>
+        <select id="midiOutput"><option value="">Select MIDI Output...</option></select>
+        <div class="radio-group">
+            <label><input type="radio" name="outputMode" value="external" checked> External MIDI</label>
+            <label><input type="radio" name="outputMode" value="internal"> Internal Sound</label>
         </div>
-
-        <!-- Quick Start Guide -->
-        <div id="quickStartGuide" class="mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg">
-            <h3 class="text-lg font-semibold text-indigo-800 mb-2">Quick Start</h3>
-            <ol class="text-sm text-indigo-700 space-y-1">
-                <li><strong>1.</strong> Connect your MIDI keyboard/device below</li>
-                <li><strong>2.</strong> Choose where you want the sound to come from</li>
-                <li><strong>3.</strong> Click "Start Auto-Tuning" and play music!</li>
-            </ol>
-            <p class="text-xs text-indigo-600 mt-2">The tool will automatically detect what key you're playing and adjust tuning for more beautiful harmonies.</p>
+    </div>
+    
+    <div class="section">
+        <h2>Tuning</h2>
+        <div class="mb">
+            <button id="startButton" onclick="startSystem()">Start</button>
+            <button id="stopButton" onclick="stopSystem()" disabled>Stop</button>
+            <button id="resetButton" onclick="resetSystem()">Reset</button>
         </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-                <label for="midiIn" class="block text-sm font-medium text-gray-700 mb-1">Keyboard/Input Device:</label>
-                <select id="midiIn" class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></select>
-            </div>
-            <div>
-                <label for="midiOut" class="block text-sm font-medium text-gray-700 mb-1">Sound Output Device:</label>
-                <select id="midiOut" class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></select>
-            </div>
+        <div class="key-display" id="keyDisplay">
+            <span id="keyName">—</span>
+            <span class="confidence" id="keyConfidence"></span>
+            <span class="confidence small" id="keyMethod">Ensemble detection</span>
         </div>
-
-        <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Sound Source:</label>
-            <div class="radio-group mt-1">
-                <label><input type="radio" name="outputMode" value="midi" checked> External Device/Software</label>
-                <label><input type="radio" name="outputMode" value="webaudio"> Built-in Piano Sound</label>
-            </div>
+        <div class="status" id="detectionStatus">Status: Ready</div>
+        <div class="mt" style="padding: 10px; border: 1px solid black;">
+            <span class="small">Tuning Mode:</span>
+            <span id="tuningModeIndicator" class="tuning-mode-badge">MTS</span>
+            <span id="sysexStatus" class="small"></span>
+            <button id="switchToMTS" onclick="switchToMTSMode()" class="small" disabled>Use MTS</button>
+            <button id="switchToMPE" onclick="switchToMPEMode()" class="small">Use MPE</button>
+            <div class="small mt">MTS = MIDI Tuning Standard (SysEx) | MPE = Per-channel pitch bend</div>
+            <div id="sysexHelp" class="small">Switch to MPE if tuning sounds incorrect.</div>
         </div>
-
-        <div class="mb-6 p-4 border border-dashed border-gray-300 rounded-md">
-            <div class="flex justify-between items-center mb-3">
-                <h2 class="text-lg font-semibold text-gray-700">Harmony Enhancement</h2>
-                <button id="advancedControlsToggle" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">
-                    Show Options
-                </button>
+        <div class="mt">
+            <label>Detection Sensitivity:</label>
+            <select id="sensitivity">
+                <option value="low">Low (stable)</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High (responsive)</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>Piece Identification</h2>
+        <div class="status" id="stage1Status">Ready</div>
+        <div id="scoreProgress" class="mt"></div>
+        <div id="predictedNotes" class="mt"></div>
+        <div id="songResults" class="mt"></div>
+    </div>
+    
+    <div class="section">
+        <h2>Recording</h2>
+        <div class="mb">
+            <button id="recordButton" onclick="toggleRecording()">Record</button>
+            <button id="clearRecordingButton" onclick="clearRecordingData()" disabled>Clear</button>
+            <span id="recordingIndicator" style="margin-left: 10px;"></span>
+        </div>
+        <div id="recordingStatus" class="status">Ready</div>
+        <div id="recordingInfo" class="hidden mt small">
+            <span id="recordingDuration">0:00</span> / 10:00 | 
+            <span id="recordingNoteCount">0</span> notes | 
+            Key: <span id="recordingCurrentKey">—</span>
+            <span id="recordingKeySource" class="small"></span>
+        </div>
+        <div id="downloadSection" class="hidden mt" style="padding-top: 10px; border-top: 1px solid black;">
+            <div class="radio-group mb">
+                <label><input type="radio" name="recordingFormat" value="midi1" checked> MIDI 1.0 (.mid)</label>
+                <label><input type="radio" name="recordingFormat" value="midi2"> MIDI 2.0 (.midi2)</label>
             </div>
-
-            <div class="text-center mb-4">
-                <button id="smartActivateButton" class="w-full md:w-1/2 px-6 py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-700 transition-colors disabled:opacity-50">
-                    Start Auto-Tuning
-                </button>
-                <p id="smartStatus" class="mt-2 text-sm text-gray-600">Off</p>
-            </div>
-
-            <div id="advancedControlsContainer" class="hidden pt-4 border-t border-gray-200">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Tuning Style:</label>
-                        <div class="radio-group mt-1">
-                            <label><input type="radio" name="tuningSystem" value="12tet" checked> Standard (Equal Temperament)</label>
-                            <label><input type="radio" name="tuningSystem" value="ji"> Natural Harmonies (Just Intonation)</label>
-                        </div>
-                    </div>
-                    <div>
-                        <label for="pitchBendRange" class="block text-sm font-medium text-gray-700 mb-1">Pitch Bend Range (semitones):</label>
-                        <select id="pitchBendRange" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                            <option value="2" selected>±2 (Default)</option>
-                            <option value="7">±7</option>
-                            <option value="12">±12 (Octave)</option>
-                            <option value="24">±24 (Two Octaves)</option>
-                        </select>
-                        <p class="text-xs text-gray-500 mt-1">Match your MIDI device's pitch bend range</p>
-                    </div>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-                    <div id="jiOptionsContainer">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Key Detection:</label>
-                        <div class="radio-group mt-1">
-                            <label><input type="radio" name="jiReferenceSource" value="manual" checked> Set Manually</label>
-                            <label><input type="radio" name="jiReferenceSource" value="auto"> Auto-Detect While Playing</label>
-                        </div>
-                    </div>
-                </div>
-                <div id="manualJiControls" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label for="jiReferenceNote" class="block text-sm font-medium text-gray-700 mb-1">Key Center:</label>
-                        <select id="jiReferenceNote" class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></select>
-                    </div>
-                    <div>
-                        <label for="jiScaleType" class="block text-sm font-medium text-gray-700 mb-1">Scale Type:</label>
-                        <select id="jiScaleType" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                            <option value="major">Major</option>
-                            <option value="minor">Minor</option>
-                        </select>
-                    </div>
-                </div>
-                <div id="autoDetectControls" class="hidden">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Detected Key:</label>
-                    <div id="detectedKeyDisplay" class="key-display mt-2 p-3 text-center rounded-md bg-gray-100 border border-gray-300">
-                        <span class="font-semibold text-lg text-gray-500">Play some notes to detect the key...</span>
-                    </div>
-                </div>
-                <div class="mt-4 flex items-center">
-                    <button id="activateTuningButton" class="px-4 py-2 bg-indigo-600 text-white rounded-md shadow disabled:opacity-50">Apply Tuning</button>
-                    <span id="tuningStatus" class="ml-4 text-sm text-gray-600">Not Active</span>
-                </div>
-            </div>
-            
-            <div class="mt-4">
-                <button id="panicButton" class="px-4 py-2 bg-red-600 text-white rounded-md shadow hover:bg-red-700">Stop All Sounds</button>
+            <button id="downloadRecordingButton" onclick="downloadRecordingFile()">Download</button>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>File Tuning</h2>
+        <div class="mt">
+            <label>Select MIDI File:</label>
+            <input type="file" id="midiFileInput" accept=".mid,.midi" onchange="handleMIDIFileSelect(event)" style="font-family: inherit; padding: 5px; border: 1px solid black;">
+        </div>
+        <div class="file-info hidden" id="fileInfo"><div id="fileInfoContent">No file selected</div></div>
+        <div class="mt">
+            <label>Key Detection:</label>
+            <div class="radio-group">
+                <label><input type="radio" name="keyMode" value="auto" checked> Auto-detect</label>
+                <label><input type="radio" name="keyMode" value="manual"> Manual:</label>
+                <select id="manualKeySelect" disabled>
+                    <option value="C">C major</option><option value="G">G major</option><option value="D">D major</option>
+                    <option value="A">A major</option><option value="E">E major</option><option value="B">B major</option>
+                    <option value="F#">F# major</option><option value="F">F major</option><option value="Bb">Bb major</option>
+                    <option value="Eb">Eb major</option><option value="Ab">Ab major</option><option value="Db">Db major</option>
+                    <option value="Am">A minor</option><option value="Em">E minor</option><option value="Bm">B minor</option>
+                    <option value="F#m">F# minor</option><option value="C#m">C# minor</option><option value="G#m">G# minor</option>
+                    <option value="Dm">D minor</option><option value="Gm">G minor</option><option value="Cm">C minor</option>
+                    <option value="Fm">F minor</option><option value="Bbm">Bb minor</option><option value="Ebm">Eb minor</option>
+                </select>
             </div>
         </div>
-
-        <div class="hidden">
-            <h2 class="text-lg font-semibold text-gray-700 mb-2">System Messages:</h2>
-            <div id="messageLog"></div>
+        <div class="mt">
+            <label>Output Format:</label>
+            <div class="radio-group">
+                <label><input type="radio" name="outputFormat" value="midi1" checked> MIDI 1.0 (MTS SysEx)</label>
+                <label><input type="radio" name="outputFormat" value="midi2"> MIDI 2.0 (.midi2)</label>
+            </div>
         </div>
-    </main>
-
-    <!--<footer class="mt-6 text-center text-sm text-gray-500">
-        Instant Harmonies &copy; 2024
-    </footer>-->
-
-    <script src="script5.js"></script>
+        <div class="mt">
+            <button id="processButton" onclick="processMIDIFile()" disabled>Apply Tuning</button>
+            <button id="downloadButton" onclick="downloadTunedMIDI()" disabled>Download</button>
+        </div>
+        <div class="status" id="tuningStatus">Status: Select a MIDI file</div>
+        <div class="key-segments hidden" id="keySegmentsDisplay"></div>
+    </div>
+    
+    <div class="section">
+        <h2>Console</h2>
+        <div id="consoleDisplay">Initializing...</div>
+    </div>
+    
+    <script type="module" src="js/main.js"></script>
+    
+    <script type="module">
+        import { parseMIDIFile } from './js/midi-parser.js';
+        import { processMIDIForJI } from './js/midi-file-tuner.js';
+        import { exportMIDI1WithMTS, exportMIDI2WithPitch725, downloadFile, generateOutputFilename } from './js/midi-writer.js';
+        
+        let currentMidiData = null, currentTuningResult = null, currentFileName = '';
+        
+        window.handleMIDIFileSelect = async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            currentFileName = file.name;
+            const statusEl = document.getElementById('tuningStatus');
+            const fileInfoEl = document.getElementById('fileInfo');
+            const fileInfoContentEl = document.getElementById('fileInfoContent');
+            statusEl.textContent = 'Status: Parsing MIDI file...';
+            fileInfoEl.classList.remove('hidden');
+            document.getElementById('keySegmentsDisplay').classList.add('hidden');
+            document.getElementById('downloadButton').disabled = true;
+            currentTuningResult = null;
+            try {
+                currentMidiData = await parseMIDIFile(file);
+                const duration = currentMidiData.durationSeconds;
+                const minutes = Math.floor(duration / 60);
+                const seconds = Math.round(duration % 60);
+                fileInfoContentEl.innerHTML = `<strong>File:</strong> ${file.name}<br><strong>Format:</strong> SMF Type ${currentMidiData.format}<br><strong>Tracks:</strong> ${currentMidiData.trackCount}<br><strong>Notes:</strong> ${currentMidiData.notes.length.toLocaleString()}<br><strong>Duration:</strong> ${minutes}:${seconds.toString().padStart(2, '0')}<br><strong>Resolution:</strong> ${currentMidiData.ticksPerQuarterNote} ticks/quarter`;
+                document.getElementById('processButton').disabled = false;
+                statusEl.textContent = 'Status: File loaded. Click "Apply Tuning" to process.';
+                console.log(`Loaded MIDI file: ${file.name} (${currentMidiData.notes.length} notes)`);
+            } catch (error) {
+                console.error('Error parsing MIDI file:', error);
+                fileInfoContentEl.innerHTML = `<span style="color: red;">Error: ${error.message}</span>`;
+                document.getElementById('processButton').disabled = true;
+                statusEl.textContent = 'Status: Error parsing file';
+            }
+        };
+        
+        window.processMIDIFile = function() {
+            if (!currentMidiData) { alert('Please select a MIDI file first'); return; }
+            const statusEl = document.getElementById('tuningStatus');
+            const keySegmentsEl = document.getElementById('keySegmentsDisplay');
+            statusEl.textContent = 'Status: Analyzing keys and applying tuning...';
+            const keyMode = document.querySelector('input[name="keyMode"]:checked').value;
+            const manualKey = keyMode === 'manual' ? document.getElementById('manualKeySelect').value : null;
+            try {
+                currentTuningResult = processMIDIForJI(currentMidiData, { multiKey: keyMode === 'auto', manualKey });
+                const segments = currentTuningResult.keySegments;
+                let html = `<strong>Detected Keys (${segments.length} segment${segments.length > 1 ? 's' : ''}):</strong><br>`;
+                for (const seg of segments) {
+                    const timeRange = `${Math.floor(seg.startTime / 60)}:${Math.round(seg.startTime % 60).toString().padStart(2, '0')} - ${Math.floor(seg.endTime / 60)}:${Math.round(seg.endTime % 60).toString().padStart(2, '0')}`;
+                    html += `<div class="key-segment"><strong>${seg.key}</strong> | ${timeRange} | ${seg.confidence}%</div>`;
+                }
+                keySegmentsEl.innerHTML = html;
+                keySegmentsEl.classList.remove('hidden');
+                document.getElementById('downloadButton').disabled = false;
+                statusEl.textContent = `Status: Tuning applied. ${currentTuningResult.summary.totalNotes} notes, ${segments.length} key segment(s).`;
+                console.log(`Tuning complete: ${segments.length} key segments`);
+            } catch (error) {
+                console.error('Error processing MIDI:', error);
+                statusEl.textContent = `Status: Error - ${error.message}`;
+                document.getElementById('downloadButton').disabled = true;
+            }
+        };
+        
+        window.downloadTunedMIDI = function() {
+            if (!currentTuningResult) { alert('Please process a MIDI file first'); return; }
+            const statusEl = document.getElementById('tuningStatus');
+            const outputFormat = document.querySelector('input[name="outputFormat"]:checked').value;
+            try {
+                let blob, filename;
+                if (outputFormat === 'midi2') {
+                    blob = exportMIDI2WithPitch725(currentTuningResult);
+                    filename = generateOutputFilename(currentFileName, 'midi2');
+                } else {
+                    blob = exportMIDI1WithMTS(currentTuningResult);
+                    filename = generateOutputFilename(currentFileName, 'midi1');
+                }
+                statusEl.textContent = `Status: Downloading ${filename}`;
+                downloadFile(blob, filename);
+                console.log(`Downloaded: ${filename}`);
+            } catch (error) {
+                console.error('Error exporting MIDI:', error);
+                statusEl.textContent = `Status: Export error - ${error.message}`;
+            }
+        };
+        
+        document.querySelectorAll('input[name="keyMode"]').forEach(radio => {
+            radio.addEventListener('change', function() { document.getElementById('manualKeySelect').disabled = this.value !== 'manual'; });
+        });
+    </script>
+    
+    <script src="two_stage_client.js"></script>
+    
+    <script>
+        window.addEventListener('load', () => {
+            const checkAndHook = setInterval(() => {
+                if (window.handleNoteOn) {
+                    const original = window.handleNoteOn;
+                    window.handleNoteOn = function(note, velocity, channel, hardwareTimestamp) {
+                        original.call(this, note, velocity, channel, hardwareTimestamp);
+                        if (window.twoStageClient?.connected) window.twoStageClient.sendMidiNote(note, velocity);
+                    };
+                    clearInterval(checkAndHook);
+                    console.log('Two-stage note hook installed');
+                }
+            }, 100);
+        });
+        
+        function resetSystem() {
+            window.stopSystem?.();
+            window.panicStop?.();
+            window.keyDetector?.reset();
+            document.getElementById('keyName').textContent = '—';
+            document.getElementById('keyConfidence').textContent = '';
+            document.getElementById('detectionStatus').textContent = 'Status: Reset';
+            document.getElementById('stage1Status').innerHTML = 'Ready';
+            document.getElementById('stage1Status').style.backgroundColor = '';
+            document.getElementById('songResults').innerHTML = '';
+            document.getElementById('scoreProgress').innerHTML = '';
+            document.getElementById('predictedNotes').innerHTML = '';
+            window.twoStageClient?.connected ? window.twoStageClient.reset() : window.twoStageClient?.clearAllUI?.();
+            console.log('System reset');
+        }
+        
+        const consoleDiv = document.getElementById('consoleDisplay');
+        const originalLog = console.log, originalWarn = console.warn, originalError = console.error;
+        function addConsoleEntry(msg) {
+            const entry = document.createElement('div');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            consoleDiv.appendChild(entry);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            while (consoleDiv.children.length > 100) consoleDiv.removeChild(consoleDiv.firstChild);
+        }
+        console.log = (...args) => { originalLog.apply(console, args); addConsoleEntry(args.join(' ')); };
+        console.warn = (...args) => { originalWarn.apply(console, args); addConsoleEntry(args.join(' ')); };
+        console.error = (...args) => { originalError.apply(console, args); addConsoleEntry(args.join(' ')); };
+        console.log('System initialized');
+        
+        let recordingUpdateInterval = null;
+        const getRecorder = () => window.midiRecorder;
+        
+        function toggleRecording() {
+            const recorder = getRecorder();
+            if (!recorder) { alert('Recording module not loaded yet.'); return; }
+            recorder.isRecording() ? stopRecordingSession() : startRecordingSession();
+        }
+        
+        function startRecordingSession() {
+            const recorder = getRecorder();
+            if (!recorder) return;
+            if (!document.getElementById('startButton').disabled) {
+                if (!confirm('Tuning system not running. JI tuning will be applied at download time.\n\nProceed?')) return;
+            }
+            recorder.startRecording();
+            document.getElementById('recordButton').textContent = 'Stop';
+            document.getElementById('clearRecordingButton').disabled = true;
+            document.getElementById('recordingIndicator').textContent = 'REC';
+            document.getElementById('recordingStatus').textContent = 'Recording...';
+            document.getElementById('recordingInfo').classList.remove('hidden');
+            document.getElementById('downloadSection').classList.add('hidden');
+            recordingUpdateInterval = setInterval(updateRecordingDisplay, 200);
+            console.log('Recording started');
+        }
+        
+        function stopRecordingSession() {
+            const recorder = getRecorder();
+            if (!recorder) return;
+            recorder.stopRecording();
+            if (recordingUpdateInterval) { clearInterval(recordingUpdateInterval); recordingUpdateInterval = null; }
+            document.getElementById('recordButton').textContent = 'Record';
+            document.getElementById('clearRecordingButton').disabled = false;
+            document.getElementById('recordingIndicator').textContent = 'Done';
+            const stats = recorder.getRecordingStats();
+            let statusText = `${stats.completedNotes} notes, ${stats.ccEventCount || 0} pedal events`;
+            if (stats.completedNotes > 0) {
+                document.getElementById('downloadSection').classList.remove('hidden');
+                try {
+                    const keyInfo = recorder.getDetectedKeys();
+                    if (keyInfo.keySegments.length > 0) {
+                        statusText += ` | Keys: ${keyInfo.keySegments.map(s => s.key).join(' → ')} ${keyInfo.keySource === 'musicxml' ? '(MusicXML)' : '(detected)'}`;
+                    }
+                } catch (e) {}
+            }
+            document.getElementById('recordingStatus').textContent = statusText;
+            updateRecordingDisplay();
+            console.log('Recording stopped');
+        }
+        
+        function updateRecordingDisplay() {
+            const recorder = getRecorder();
+            if (!recorder) return;
+            const stats = recorder.getRecordingStats();
+            if (!stats.isRecording && recordingUpdateInterval) { stopRecordingSession(); return; }
+            const minutes = Math.floor(stats.durationSeconds / 60);
+            const seconds = Math.floor(stats.durationSeconds % 60);
+            document.getElementById('recordingDuration').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            document.getElementById('recordingNoteCount').textContent = stats.noteCount;
+            document.getElementById('recordingCurrentKey').textContent = stats.currentKey || '—';
+            if (stats.currentKey) document.getElementById('recordingKeySource').textContent = stats.keySource === 'musicxml' ? '(MusicXML)' : '(detected)';
+        }
+        
+        function clearRecordingData() {
+            const recorder = getRecorder();
+            if (!recorder) return;
+            recorder.clearRecording();
+            document.getElementById('recordButton').textContent = 'Record';
+            document.getElementById('clearRecordingButton').disabled = true;
+            document.getElementById('recordingIndicator').textContent = '';
+            document.getElementById('recordingStatus').textContent = 'Ready';
+            document.getElementById('recordingInfo').classList.add('hidden');
+            document.getElementById('downloadSection').classList.add('hidden');
+            document.getElementById('recordingDuration').textContent = '0:00';
+            document.getElementById('recordingNoteCount').textContent = '0';
+            console.log('Recording cleared');
+        }
+        
+        function downloadRecordingFile() {
+            const recorder = getRecorder();
+            if (!recorder?.hasRecording()) { alert('No recording available'); return; }
+            const format = document.querySelector('input[name="recordingFormat"]:checked').value;
+            try {
+                recorder.downloadRecording(format);
+                console.log(`Downloaded as ${format === 'midi2' ? 'MIDI 2.0' : 'MIDI 1.0'}`);
+            } catch (error) { alert('Download failed: ' + error.message); }
+        }
+    </script>
 </body>
 </html>
