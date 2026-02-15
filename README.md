@@ -129,7 +129,3 @@ JavaScript: Vanilla ES6, no build step needed
 - [Parangonar](https://github.com/sildater/parangonar) for score following
 - [Partitura](https://github.com/CPJKU/partitura) for MusicXML parsing
 - ATEPP dataset for the piano performance data
-
-## License
-
-MIT
